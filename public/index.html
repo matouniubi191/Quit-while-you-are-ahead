@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>多人移动测试</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #20242b;
+      color: white;
+      text-align: center;
+    }
+
+    #panel {
+      padding: 16px;
+    }
+
+    input,
+    button {
+      padding: 10px;
+      margin: 4px;
+      font-size: 16px;
+    }
+
+    #game {
+      position: relative;
+      width: 800px;
+      height: 500px;
+      max-width: 90vw;
+      margin: 20px auto;
+      overflow: hidden;
+      background: #3d7048;
+      border: 4px solid white;
+    }
+
+    .player {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: #3498db;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 12px;
+      line-height: 40px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .me {
+      background: #e74c3c;
+    }
+
+    #status {
+      color: #ffd166;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="panel">
+    <h1>多人移动测试</h1>
+
+    <input id="nameInput" placeholder="输入名字" value="玩家" />
+    <input id="roomInput" placeholder="输入房间号" value="room1" />
+    <button id="joinButton">加入房间</button>
+
+    <p id="status">尚未加入房间</p>
+  </div>
+
+  <div id="game"></div>
+
+  <!-- Socket.IO 客户端程序 -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <script>
+    const socket = io();
+
+    const game = document.getElementById("game");
+    const nameInput = document.getElementById("nameInput");
+    const roomInput = document.getElementById("roomInput");
+    const joinButton = document.getElementById("joinButton");
+    const status = document.getElementById("status");
+
+    let joined = false;
+    let myX = 200;
+    let myY = 200;
+
+    joinButton.addEventListener("click", () => {
+      const name = nameInput.value.trim() || "玩家";
+      const roomId = roomInput.value.trim() || "room1";
+
+      socket.emit("joinRoom", {
+        name,
+        roomId
+      });
+
+      joined = true;
+      status.textContent = `已加入房间：${roomId}，使用方向键移动`;
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (!joined) return;
+
+      const speed = 10;
+
+      if (event.key === "ArrowUp") {
+        myY -= speed;
+      }
+
+      if (event.key === "ArrowDown") {
+        myY += speed;
+      }
+
+      if (event.key === "ArrowLeft") {
+        myX -= speed;
+      }
+
+      if (event.key === "ArrowRight") {
+        myX += speed;
+      }
+
+      myX = Math.max(20, Math.min(780, myX));
+      myY = Math.max(20, Math.min(480, myY));
+
+      socket.emit("move", {
+        x: myX,
+        y: myY
+      });
+    });
+
+    socket.on("playersUpdate", (players) => {
+      game.innerHTML = "";
+
+      Object.values(players).forEach((player) => {
+        const element = document.createElement("div");
+
+        element.className = "player";
+
+        if (player.id === socket.id) {
+          element.classList.add("me");
+        }
+
+        element.textContent = player.name;
+        element.style.left = `${player.x}px`;
+        element.style.top = `${player.y}px`;
+
+        game.appendChild(element);
+      });
+    });
+  </script>
+</body>
+</html>
