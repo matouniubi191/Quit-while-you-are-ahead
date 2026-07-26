@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>探险夺宝</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: #172033;
+  background: #eef2f6;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+main {
+  width: min(920px, calc(100% - 32px));
+  margin: 32px auto;
+}
+h1 { margin: 0 0 8px; font-size: 30px; }
+h2 { margin: 0 0 16px; font-size: 20px; }
+p { color: #667085; }
+.panel {
+  padding: 24px;
+  margin-bottom: 18px;
+  background: white;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  box-shadow: 0 3px 12px #1720330d;
+}
+input, select, button {
+  min-height: 42px;
+  border: 1px solid #c8d0db;
+  border-radius: 6px;
+  padding: 0 12px;
+  font: inherit;
+}
+input { width: 100%; }
+button {
+  cursor: pointer;
+  color: white;
+  background: #1769aa;
+  border-color: #1769aa;
+  font-weight: bold;
+}
+button:hover { background: #125687; }
+button.secondary {
+  color: #344054;
+  background: white;
+  border-color: #c8d0db;
+}
+button:disabled { cursor: not-allowed; opacity: .5; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.players {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.stat {
+  padding: 14px;
+  background: #f7f9fb;
+  border-left: 4px solid #1769aa;
+}
+.stat strong { display: block; font-size: 22px; margin-top: 4px; }
+.card-result {
+  padding: 20px;
+  text-align: center;
+  background: #fff8e7;
+  border: 1px solid #f0d28c;
+  border-radius: 6px;
+}
+.card-result strong { display: block; font-size: 25px; color: #9a6700; }
+.player {
+  padding: 14px;
+  border: 1px solid #d9e0e8;
+  border-radius: 6px;
+}
+.player.out { opacity: .55; background: #f3f4f6; }
+.player b { display: block; margin-bottom: 6px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+#log {
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  color: #475467;
+  background: #f7f9fb;
+  white-space: pre-line;
+  font-size: 14px;
+}
+.hidden { display: none; }
+@media (max-width: 600px) {
+  main { width: min(100% - 20px, 920px); margin: 16px auto; }
+  .panel { padding: 16px; }
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <section id="setup" class="panel">
+    <h1>探险夺宝</h1>
+    <p>抽牌获得金币，在恶魔出现两张前决定是否见好就收。</p>
+
+    <label>玩家数量</label>
+    <select id="playerCount">
+      <option>2</option><option>3</option><option>4</option>
+      <option>5</option><option>6</option><option>7</option><option>8</option>
+    </select>
+
+    <div id="nameInputs" class="players" style="margin:16px 0"></div>
+    <button id="startBtn">开始游戏</button>
+  </section>
+
+  <section id="game" class="hidden">
+    <div class="panel">
+      <h1>探险夺宝</h1>
+      <div class="grid">
+        <div class="stat">宝藏池<strong id="treasure">0</strong></div>
+        <div class="stat">剩余池<strong id="remainder">0</strong></div>
+        <div class="stat">牌库剩余<strong id="deckCount">30</strong></div>
+        <div class="stat">恶魔数量<strong id="demons">巫妖 0 / 塞壬 0 / 狮鹫 0</strong></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="cardResult" class="card-result">点击“抽一张牌”开始探险。</div>
+      <div class="actions" style="margin-top:16px">
+        <button id="drawBtn">抽一张牌</button>
+        <button id="restartBtn" class="secondary">重新开始</button>
+      </div>
+    </div>
+
+    <div id="choicePanel" class="panel hidden">
+      <h2>玩家选择</h2>
+      <div id="choices" class="players"></div>
+      <button id="settleBtn" style="margin-top:16px">结算</button>
+    </div>
+
+    <div class="panel">
+      <h2>玩家状态</h2>
+      <div id="players" class="players"></div>
+    </div>
+
+    <div class="panel">
+      <h2>游戏记录</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = null;
+
+function randomGold() {
+  return Math.floor(Math.random() * 11) + 5;
+}
+
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function createDeck() {
+  const deck = [];
+
+  for (let i = 0; i < 16; i++) {
+    deck.push({ type: "package", gold: randomGold(), name: "包裹卡" });
+  }
+
+  for (let i = 0; i < 5; i++) {
+    deck.push({ type: "treasure", gold: randomGold(), name: "宝藏卡" });
+  }
+
+  ["巫妖", "塞壬", "狮鹫"].forEach(demon => {
+    for (let i = 0; i < 3; i++) {
+      deck.push({ type: "demon", demon, name: `恶魔卡：${demon}` });
+    }
+  });
+
+  return shuffle(deck);
+}
+
+function log(message) {
+  $("log").textContent += message + "\n";
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function activePlayers() {
+  return state.players.filter(player => !player.out);
+}
+
+function update() {
+  $("treasure").textContent = state.treasurePool;
+  $("remainder").textContent = state.remainderPool;
+  $("deckCount").textContent = state.deck.length;
+  $("demons").textContent =
+    `巫妖 ${state.demons.巫妖} / 塞壬 ${state.demons.塞壬} / 狮鹫 ${state.demons.狮鹫}`;
+
+  $("players").innerHTML = state.players.map(player => `
+    <div class="player ${player.out ? "out" : ""}">
+      <b>${player.name}</b>
+      <span>${player.gold} 金币 · ${player.out ? "已下场" : "探险中"}</span>
+    </div>
+  `).join("");
+}
+
+function makeNameInputs() {
+  const count = Number($("playerCount").value);
+  $("nameInputs").innerHTML = Array.from({ length: count }, (_, i) => `
+    <input id="name${i}" placeholder="玩家 ${i + 1} 的名字" value="玩家${i + 1}">
+  `).join("");
+}
+
+function startGame() {
+  const count = Number($("playerCount").value);
+
+  state = {
+    deck: createDeck(),
+    players: Array.from({ length: count }, (_, i) => ({
+      name: $(`name${i}`).value.trim() || `玩家${i + 1}`,
+      gold: 0,
+      out: false,
+      choice: null
+    })),
+    treasurePool: 0,
+    remainderPool: 0,
+    demons: { 巫妖: 0, 塞壬: 0, 狮鹫: 0 },
+    gameOver: false
+  };
+
+  $("setup").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  $("choicePanel").classList.add("hidden");
+  $("cardResult").innerHTML = "点击“抽一张牌”开始探险。";
+  $("log").textContent = "";
+  $("drawBtn").disabled = false;
+  log("游戏开始。");
+  update();
+}
+
+function finish(message) {
+  state.gameOver = true;
+  $("drawBtn").disabled = true;
+  $("choicePanel").classList.add("hidden");
+  log(message);
+  showRanking();
+  update();
+}
+
+function drawCard() {
+  if (state.gameOver || state.deck.length === 0) return;
+
+  const card = state.deck.pop();
+
+  if (card.type === "package") {
+    const active = activePlayers();
+    const each = Math.floor(card.gold / active.length);
+    const remainder = card.gold % active.length;
+
+    active.forEach(player => player.gold += each);
+    state.remainderPool += remainder;
+
+    $("cardResult").innerHTML =
+      `<strong>包裹卡</strong>获得 ${card.gold} 金币，每位探险者获得 ${each} 金币，${remainder} 金币进入剩余池。`;
+    log(`抽到包裹卡：${card.gold} 金币。`);
+  }
+
+  if (card.type === "treasure") {
+    state.treasurePool += card.gold;
+    $("cardResult").innerHTML =
+      `<strong>宝藏卡</strong>${card.gold} 金币进入宝藏池。`;
+    log(`抽到宝藏卡：${card.gold} 金币进入宝藏池。`);
+  }
+
+  if (card.type === "demon") {
+    state.demons[card.demon]++;
+    $("cardResult").innerHTML =
+      `<strong>恶魔卡：${card.demon}</strong>目前出现 ${state.demons[card.demon]} 张。`;
+    log(`抽到恶魔卡：${card.demon}。`);
+
+    if (state.demons[card.demon] >= 2) {
+      activePlayers().forEach(player => player.gold = 0);
+      finish(`同一种恶魔出现两张，仍在探险的玩家金币归零。`);
+      return;
+    }
+  }
+
+  update();
+  createChoices();
+}
+
+function createChoices() {
+  if (state.gameOver || activePlayers().length === 0) {
+    finish("所有玩家都已下场，游戏结束。");
+    return;
+  }
+
+  $("choices").innerHTML = state.players
+    .map((player, index) => player.out ? "" : `
+      <label class="player">
+        <b>${player.name}：${player.gold} 金币</b>
+        <select data-player="${index}">
+          <option value="continue">继续探险</option>
+          <option value="quit">见好就收</option>
+        </select>
+      </label>
+    `).join("");
+
+  $("choicePanel").classList.remove("hidden");
+  $("drawBtn").disabled = true;
+}
+
+function settleChoices() {
+  const selects = [...document.querySelectorAll("[data-player]")];
+  const quitters = selects
+    .filter(select => select.value === "quit")
+    .map(select => state.players[Number(select.dataset.player)]);
+
+  if (quitters.length === 1) {
+    const player = quitters[0];
+    player.gold += state.treasurePool + state.remainderPool;
+    state.treasurePool = 0;
+    state.remainderPool = 0;
+    player.out = true;
+    log(`${player.name} 单独见好就收，领取两个池子的全部金币。`);
+  } else if (quitters.length > 1) {
+    const each = Math.floor(state.remainderPool / quitters.length);
+    state.remainderPool %= quitters.length;
+
+    quitters.forEach(player => {
+      player.gold += each;
+      player.out = true;
+    });
+
+    log(`${quitters.length} 名玩家见好就收，只平分剩余池。`);
+  } else {
+    log("本轮没有玩家见好就收。");
+  }
+
+  $("choicePanel").classList.add("hidden");
+
+  if (activePlayers().length === 0) {
+    finish("所有玩家都已下场，游戏结束。");
+    return;
+  }
+
+  if (state.deck.length === 0) {
+    finish("牌库已经抽完，游戏结束。");
+    return;
+  }
+
+  $("drawBtn").disabled = false;
+  update();
+}
+
+function showRanking() {
+  const ranking = [...state.players].sort((a, b) => b.gold - a.gold);
+  const highest = ranking[0].gold;
+  const winners = ranking.filter(player => player.gold === highest);
+
+  let message = "\n最终排名：\n";
+  ranking.forEach((player, index) => {
+    message += `${index + 1}. ${player.name}：${player.gold} 金币\n`;
+  });
+
+  if (highest === 0) {
+    message += "全军覆没！所有玩家金币都是 0。";
+  } else if (winners.length === 1) {
+    message += `第一名：${winners[0].name}`;
+  } else {
+    message += `并列第一：${winners.map(player => player.name).join("、")}`;
+  }
+
+  log(message);
+  $("cardResult").innerHTML = `<strong>游戏结束</strong>请查看游戏记录中的最终排名。`;
+}
+
+$("playerCount").addEventListener("change", makeNameInputs);
+$("startBtn").addEventListener("click", startGame);
+$("drawBtn").addEventListener("click", drawCard);
+$("settleBtn").addEventListener("click", settleChoices);
+$("restartBtn").addEventListener("click", () => {
+  $("game").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  makeNameInputs();
+});
+
+makeNameInputs();
+</script>
+</body>
+</html>
